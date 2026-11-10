@@ -55,6 +55,16 @@ jobs:
         with:
           python-version: "3.11"
 
+      # PySpark 3.5's bundled Hadoop client cannot start a local SparkContext
+      # on the newer JDKs GitHub runners default to (Java 21 fails with
+      # "UnsupportedOperationException: getSubject is not supported" from
+      # Hadoop's UserGroupInformation). Pin Java 11, which PySpark 3.5 fully
+      # supports, for the unit-test step.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "11"
+
       - name: Install dev dependencies
         run: pip install -r requirements-dev.txt
 
