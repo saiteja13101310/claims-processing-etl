@@ -1,0 +1,11 @@
+# Dependencies for local development and CI (unit tests + bundle tooling).
+# The production job itself needs NONE of these: it runs on Databricks
+# serverless compute, where PySpark and Delta are built in.
+
+# Unit tests (tests/test_claims.py) - exercised on a local Spark session
+pyspark>=3.5,<4.0
+pytest>=8.0
+
+# Install the Databricks CLI locally ONLY if you want to run bundle commands
+# from your own machine. Not required: CI and the workspace handle it.
+# databricks-sdk>=0.30

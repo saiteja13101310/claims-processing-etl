@@ -1,0 +1,13 @@
+claim_id,policy_number,claim_date,claim_amount,status,claimant_name,region
+CLM-1001,POL-5001,2026-01-15,2500.00,Submitted,Alice Johnson,North
+CLM-1002,POL-5002,2026-01-18,12000.50,Approved,Bob Smith,South
+CLM-1002,POL-5002,2026-01-25,12500.00,Approved,Bob Smith,South
+CLM-1003,POL-5003,2026-02-02,780.25,Pending,Carol Lee,East
+CLM-1004,POL-5004,2026-02-10,15000.00,Denied,Dave Brown,West
+CLM-1005,POL-5005,2026-02-14,320.99,submitted,Eve Davis,North
+CLM-1006,POL-5006,2026-03-01,5600.00,Approved,Frank Miller,South
+CLM-1007,POL-5007,2026-03-05,,Submitted,Grace Kim,East
+CLM-1008,POL-5008,2026-13-99,410.00,Pending,Henry Wilson,West
+,POL-5009,2026-03-10,2200.00,Submitted,Ivy Clark,North
+CLM-1009,POL-5010,2026-03-15,8300.00,Approved,Jack White,South
+CLM-1010,POL-5011,2026-03-20,675.30,Denied,Karen Green,East

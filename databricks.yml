@@ -1,0 +1,93 @@
+# =============================================================================
+# Claims Processing ETL Pipeline - Declarative Automation Bundle (DAB)
+# =============================================================================
+# Top-level bundle configuration: shared variables plus dev/prod targets.
+#
+# Two deployment topologies are supported:
+#   1. TWO WORKSPACES (Dev + Prod): uncomment `workspace.host` per target and
+#      authenticate with a separate profile/token per workspace.
+#   2. ONE-WORKSPACE fallback (Databricks Free Edition / single workspace):
+#      both targets deploy to THIS workspace, but each target uses its own
+#      catalog (claims_dev vs claims_prod). Development mode also namespaces
+#      resource names with your user, so dev and prod jobs never collide.
+# =============================================================================
+
+bundle:
+  name: claims_processing_etl
+  # PROD SAFETY (no unsafe-change flag needed on the direct deployment
+  # engine): volumes/tables are NOT bundle resources, so no deploy or
+  # destroy can ever touch them; CI never runs `bundle destroy`; prod
+  # deploys print the full change plan and run only after the GitHub
+  # `production` environment approval gate.
+
+include:
+  - resources/*.yml
+
+# -----------------------------------------------------------------------------
+# Bundle variables: dev-safe defaults. Each target overrides what differs.
+# NEVER hardcode catalogs or volume paths in job definitions - always
+# reference these variables so identical code promotes cleanly dev -> prod.
+# -----------------------------------------------------------------------------
+variables:
+  catalog:
+    description: Unity Catalog catalog for this environment
+    default: claims_dev
+  schema:
+    description: Schema that holds the bronze claims tables
+    default: bronze
+  table:
+    description: Target managed Delta table for validated claims
+    default: claims_raw
+  quarantine_table:
+    description: Delta table for records that fail validation
+    default: claims_quarantine
+  landing_path:
+    description: UC volume glob path the job reads CSV files from
+    default: /Volumes/claims_dev/bronze/landing/*.csv
+  job_cron:
+    description: Quartz cron expression for the scheduled job (daily 02:00 UTC)
+    default: "0 0 2 * * ?"
+  job_pause_status:
+    description: PAUSED in dev (manual runs only); UNPAUSED in prod
+    default: PAUSED
+  alert_email:
+    description: Email address that receives job failure notifications
+    default: vsteja.de@gmail.com
+  job_owner:
+    description: Identity that runs the job (use a service principal in real prod)
+    default: vsteja.de@gmail.com
+
+targets:
+  # ------------------------------ DEV ---------------------------------------
+  dev:
+    default: true
+    mode: development
+    # Development mode: deployed job names are prefixed with your user name,
+    # files are deployed with `--force` allowed, and redeploys are cheap.
+    variables:
+      catalog: claims_dev
+      landing_path: /Volumes/claims_dev/bronze/landing/*.csv
+      job_pause_status: PAUSED
+
+    # TWO-WORKSPACE SETUP: uncomment and point at your Dev workspace URL.
+    # workspace:
+    #   host: https://adb-1234567890.12.azuredatabricks.net
+
+  # ------------------------------ PROD --------------------------------------
+  prod:
+    mode: production
+    # Production mode: stable resource names, deploy requires confirmation
+    # (CI uses --auto-approve AFTER the GitHub environment approval gate).
+    variables:
+      catalog: claims_prod
+      landing_path: /Volumes/claims_prod/bronze/landing/*.csv
+      job_pause_status: UNPAUSED
+
+    # In a real production workspace, run the job as a dedicated service
+    # principal instead of a personal account - see README, section
+    # "Service principal ownership". job_owner points at your user for now so
+    # the single-workspace fallback deploys cleanly.
+    #
+    # TWO-WORKSPACE SETUP: uncomment and point at your Prod workspace URL.
+    # workspace:
+    #   host: https://adb-9876543210.21.azuredatabricks.net

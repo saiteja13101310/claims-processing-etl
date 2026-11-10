@@ -1,0 +1,71 @@
+# -----------------------------------------------------------------------------
+# Job resource: claims ingestion (runs on SERVERLESS compute - no cluster
+# definition needed). One definition serves both targets; every
+# environment-specific value is a bundle variable resolved per target.
+# -----------------------------------------------------------------------------
+resources:
+  jobs:
+    claims_ingestion:
+      name: claims_ingestion_${bundle.target}
+      description: >
+        Reads claims CSV files from the landing Unity Catalog volume,
+        validates and transforms them with PySpark, and idempotently MERGEs
+        valid records into the bronze claims_raw Delta table. Invalid records
+        are quarantined in claims_quarantine with a rejection reason.
+
+      # ---- Monitoring & failure alerts -------------------------------------
+      email_notifications:
+        on_failure:
+          - ${var.alert_email}
+      schedule:
+        quartz_cron_expression: ${var.job_cron}
+        timezone_id: UTC
+        # PAUSED in dev (run manually), UNPAUSED in prod (runs daily 02:00 UTC)
+        pause_status: ${var.job_pause_status}
+      max_concurrent_runs: 1
+      tags:
+        project: claims_processing_etl
+        environment: ${bundle.target}
+
+      # ---- Run-as identity ---------------------------------------------------
+      # The job runs as this identity (must be allowed to read the landing
+      # volume and write the bronze tables). In dev mode this must be the
+      # deploying user; in prod point it at a service principal.
+      run_as:
+        user_name: ${var.job_owner}
+
+      # ---- Access control ----------------------------------------------------
+      # Optional: share a read-only view of the job with a workspace group.
+      # The built-in `users` group does not exist on trial / Free Edition
+      # workspaces, which would fail the deploy there - uncomment (with your
+      # own group name) on a workspace that has the group.
+      # permissions:
+      #   - level: CAN_VIEW
+      #     group_name: users
+
+      # ---- Tasks -------------------------------------------------------------
+      tasks:
+        - task_key: ingest_claims
+          spark_python_task:
+            python_file: ../src/ingest_claims.py
+            parameters:
+              - "--catalog"
+              - ${var.catalog}
+              - "--schema"
+              - ${var.schema}
+              - "--table"
+              - ${var.table}
+              - "--quarantine-table"
+              - ${var.quarantine_table}
+              - "--landing-path"
+              - ${var.landing_path}
+
+          # Serverless compute: no new_cluster/job_cluster block. Instead the
+          # task references a job environment - required for Python script
+          # tasks on serverless compute.
+          environment_key: default
+
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: '2'

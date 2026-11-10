@@ -1,0 +1,157 @@
+# =============================================================================
+# Claims Processing ETL - CI/CD pipeline (GitHub Actions)
+# =============================================================================
+# Flow:
+#   pull_request -> validate bundle (dev+prod) + run unit tests
+#   push (main)  -> deploy DEV -> smoke-run the job -> (approval gate) ->
+#                   validate + deploy PROD
+#
+# AUTHENTICATION (no personal credentials ever in the repo):
+#   Primary setup (works on any cloud): an OAuth M2M service principal.
+#     1. In Databricks: Admin settings > Identity & access > Service
+#        principals > Add > create one (e.g. claims-etl-deployer).
+#     2. Generate an OAuth SECRET for it (Identity > OAuth secrets).
+#     3. Give it the Unity Catalog grants listed in sql/setup_prod.sql.
+#     4. GitHub repo > Settings > Secrets and variables > Actions > add:
+#          DATABRICKS_HOST          = https://... your workspace URL
+#          DATABRICKS_CLIENT_ID     = the service principal's application id (UUID)
+#          DATABRICKS_CLIENT_SECRET = the OAuth secret
+#   Alternative on Azure: workload identity federation (OIDC) - see the
+#   commented job at the bottom - no secret at all.
+#
+# PROD SAFETY:
+#   * Prod deploys run only after the `production` GitHub environment
+#     approval gate (Settings > Environments > production > Required
+#     reviewers) - a human reviews the deployment plan first.
+#   * This workflow NEVER deletes volumes and contains no `bundle destroy`.
+#   * Volumes/tables are created only by sql/setup_*.sql (IF NOT EXISTS).
+# =============================================================================
+
+name: Claims ETL CI/CD
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write   # needed only for OIDC federation (Azure)
+
+concurrency:
+  group: claims-etl-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------- CI on PRs
+  validate-and-test:
+    name: Validate bundle + unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dev dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Unit tests (PySpark transforms)
+        run: pytest tests -v
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+
+      - name: Validate bundle against both targets
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+        run: |
+          databricks bundle validate --target dev
+          databricks bundle validate --target prod
+
+  # -------------------------------------------------- Deploy DEV (on merge)
+  deploy-dev:
+    name: Deploy to dev
+    needs: validate-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: databricks/setup-cli@main
+      - name: Deploy dev target
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+        run: databricks bundle deploy --target dev
+      - name: Smoke test - run the dev job
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+        run: |
+          databricks bundle run --target dev claims_ingestion \
+            --wait \
+            || (echo "Dev smoke run failed - check job logs" && exit 1)
+
+  # ------------------------------------------- Deploy PROD (approval gated)
+  deploy-prod:
+    name: Deploy to prod (requires approval)
+    needs: deploy-dev
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # This environment holds the human approval gate.
+    # Configure: Settings > Environments > production > Required reviewers.
+    # Optional protection rules: restrict to the main branch only.
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: databricks/setup-cli@main
+
+      - name: Validate prod target
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+        run: databricks bundle validate --target prod
+
+      # The deploy log prints the full change plan (resources created/
+      # updated/deleted) before applying. --auto-approve skips the CLI's
+      # interactive prompt because the human review already happened at
+      # the GitHub environment approval gate.
+      - name: Deploy prod target
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+        run: databricks bundle deploy --target prod --auto-approve
+
+# =============================================================================
+# ALTERNATIVE AUTH: Azure workload identity federation (OIDC, no secret)
+# =============================================================================
+# Instead of DATABRICKS_CLIENT_SECRET, federate the SP to GitHub OIDC:
+#   1. Create an Azure AD app + service principal, get a Databricks SP
+#      whose application id matches.
+#   2. Add a federated credential on the app for
+#      repository:<owner>/<repo>:environment:production (and :dev).
+#   3. Then authenticate with azure/login + a token exchange before the
+#      bundle steps, and drop the CLIENT_SECRET secret entirely:
+#
+#   - uses: azure/login@v2
+#     with:
+#       client-id: ${{ secrets.AZURE_CLIENT_ID }}
+#       tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+#       subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+#   - run: |
+#       az account get-access-token --resource 2ff814a6-3304-4ab8-85cb-cd0e6f879c1d > adb.json
+#       echo "DATABRICKS_TOKEN=$(jq -r .accessToken adb.json)" >> "$GITHUB_ENV"
+#   - run: databricks bundle deploy --target prod --auto-approve
+#     env:
+#       DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+#       DATABRICKS_TOKEN: ${{ env.DATABRICKS_TOKEN }}
+# =============================================================================
