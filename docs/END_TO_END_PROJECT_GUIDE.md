@@ -171,6 +171,15 @@ Final verification run **539196836555665 — SUCCESS** (32 s):
 * **Idempotency proven:** re-running the job kept 8/3 rows (MERGE updated
   existing rows, inserted none)
 
+### Phase 8 — Run audit trail ✅
+
+Added `claims_run_audit` (append-only, one row per pipeline run): counts
+for rows read / valid / duplicates dropped / invalid, MERGE inserted+updated,
+status, and error message. DDL lives in both `setup_*.sql` scripts; the
+pipeline derives the table name from `catalog.schema` (no new job parameter,
+no redeploy needed). Verified end-to-end by run `711105777645868`
+(SUCCESS: 22 read, 15 valid, 2 dups, 5 invalid, 15 updated, 0 inserted).
+
 ---
 
 ## 4. Current state snapshot
@@ -183,6 +192,7 @@ Final verification run **539196836555665 — SUCCESS** (32 s):
 | Git folder | `/Repos/vsteja.de@gmail.com/claims-processing-etl` |
 | Repo state | `main` up to date; fix commit `5aaa1237` |
 | UC data | `claims_dev.bronze.{landing, claims_raw, claims_quarantine}` populated |
+| Run audit | `claims_dev.bronze.claims_run_audit` — one row per pipeline run |
 | Schedule | PAUSED in dev (manual runs only — intentional) |
 | CI/CD | Workflow committed, **not yet active** (secrets not configured) |
 | Prod | Not started (objects, deploy, SP) — checklist below |
@@ -250,6 +260,7 @@ Verify results in SQL:
 SELECT count(*) FROM claims_dev.bronze.claims_raw;          -- 8
 SELECT count(*) FROM claims_dev.bronze.claims_quarantine;   -- 3
 SELECT invalid_reason, count(*) FROM claims_dev.bronze.claims_quarantine GROUP BY 1;
+SELECT * FROM claims_dev.bronze.claims_run_audit ORDER BY started_at DESC;  -- per-run history
 ```
 
 Change workflow: branch → edit → push → PR (CI validates + tests) → merge →
