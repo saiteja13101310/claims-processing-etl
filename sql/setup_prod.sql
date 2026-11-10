@@ -93,17 +93,18 @@ COMMENT 'Per-run audit trail for the claims ingestion pipeline (append-only)';
 -- A service principal is referenced by its APPLICATION ID (a UUID), e.g.
 --   <deploy_sp_application_id>  ->  9f1c2b34-5678-4abc-9def-0123456789ab
 
--- 1) Deployment service principal (runs `bundle deploy -t prod` from CI):
--- GRANT USE CATALOG ON CATALOG claims_prod TO `<deploy_sp_application_id>`;
--- GRANT USE SCHEMA ON SCHEMA claims_prod.bronze TO `<deploy_sp_application_id>`;
--- GRANT CREATE TABLE ON SCHEMA claims_prod.bronze TO `<deploy_sp_application_id>`;
+-- 1) Deployment service principal (runs `bundle deploy -t prod` from CI).
+--    claims-etl-deployer currently serves both deploy and run-as duties;
+--    split into two SPs when the team grows.
+GRANT USE CATALOG ON CATALOG claims_prod TO `fef0a0bb-6045-4166-b608-15864536e98f`;
+GRANT USE SCHEMA ON SCHEMA claims_prod.bronze TO `fef0a0bb-6045-4166-b608-15864536e98f`;
+GRANT CREATE TABLE ON SCHEMA claims_prod.bronze TO `fef0a0bb-6045-4166-b608-15864536e98f`;
 
 -- 2) Run-as service principal (the job's identity, i.e. job_owner in the bundle):
--- GRANT READ VOLUME ON VOLUME claims_prod.bronze.landing TO `<run_as_sp_application_id>`;
--- GRANT USE SCHEMA ON SCHEMA claims_prod.bronze TO `<run_as_sp_application_id>`;
--- GRANT MODIFY, SELECT ON TABLE claims_prod.bronze.claims_raw TO `<run_as_sp_application_id>`;
--- GRANT MODIFY, SELECT ON TABLE claims_prod.bronze.claims_quarantine TO `<run_as_sp_application_id>`;
--- GRANT MODIFY, SELECT ON TABLE claims_prod.bronze.claims_run_audit TO `<run_as_sp_application_id>`;
+GRANT READ VOLUME ON VOLUME claims_prod.bronze.landing TO `fef0a0bb-6045-4166-b608-15864536e98f`;
+GRANT MODIFY, SELECT ON TABLE claims_prod.bronze.claims_raw TO `fef0a0bb-6045-4166-b608-15864536e98f`;
+GRANT MODIFY, SELECT ON TABLE claims_prod.bronze.claims_quarantine TO `fef0a0bb-6045-4166-b608-15864536e98f`;
+GRANT MODIFY, SELECT ON TABLE claims_prod.bronze.claims_run_audit TO `fef0a0bb-6045-4166-b608-15864536e98f`;
 
 -- 3) Humans: read-only
 -- GRANT USE CATALOG ON CATALOG claims_prod TO `data_platform_team`;
