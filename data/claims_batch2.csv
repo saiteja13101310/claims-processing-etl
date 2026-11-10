@@ -1,0 +1,11 @@
+claim_id,policy_number,claim_date,claim_amount,status,claimant_name,region
+CLM-2001,POL-6001,2026-04-01,1450.75,Submitted,Mia Torres,North
+CLM-2002,POL-6002,2026-04-03,9800.00,Approved,Liam Patel,South
+CLM-2003,POL-6003,2026-04-05,2300.40,Pending,Noah Kim,East
+CLM-2003,POL-6003,2026-04-09,2450.00,Pending,Noah Kim,East
+CLM-2004,POL-6004,2026-04-07,540.00,Denied,Olivia Rossi,West
+CLM-2005,POL-6005,2026-04-10,7325.90,submitted,Emma Dubois,North
+CLM-2006,POL-6006,2026-04-12,180.25,Approved,Ethan Novak,South
+CLM-2007,POL-6007,2026-04-15,6400.00,Pending,Sofia Marin,East
+CLM-2008,POL-6008,2026-04-18,,Submitted,Aiden Clarke,West
+CLM-2009,POL-6009,2026-04-45,1500.00,Pending,Zara Ahmed,North
