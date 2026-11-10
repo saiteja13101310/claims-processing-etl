@@ -82,6 +82,16 @@ USING DELTA
 COMMENT 'Per-run audit trail for the claims ingestion pipeline (append-only)';
 
 -- ----------------------------------------------------------------- Grants --
+-- CI service principal (claims-etl-deployer): GitHub Actions deploys the
+-- dev target and smoke-runs the dev job AS this identity, so it needs the
+-- same read/write access here that the pipeline owner has in dev.
+GRANT USE CATALOG ON CATALOG claims_dev TO `fef0a0bb-6045-4166-b608-15864536e98f`;
+GRANT USE SCHEMA ON SCHEMA claims_dev.bronze TO `fef0a0bb-6045-4166-b608-15864536e98f`;
+GRANT READ VOLUME ON VOLUME claims_dev.bronze.landing TO `fef0a0bb-6045-4166-b608-15864536e98f`;
+GRANT MODIFY, SELECT ON TABLE claims_dev.bronze.claims_raw TO `fef0a0bb-6045-4166-b608-15864536e98f`;
+GRANT MODIFY, SELECT ON TABLE claims_dev.bronze.claims_quarantine TO `fef0a0bb-6045-4166-b608-15864536e98f`;
+GRANT MODIFY, SELECT ON TABLE claims_dev.bronze.claims_run_audit TO `fef0a0bb-6045-4166-b608-15864536e98f`;
+
 -- Unity Catalog permissions for development: share read access with a
 -- group once your workspace has one. The built-in `users` group does NOT
 -- exist on trial / Free Edition workspaces (the GRANTs fail there with

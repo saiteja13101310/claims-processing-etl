@@ -29,10 +29,13 @@ resources:
 
       # ---- Run-as identity ---------------------------------------------------
       # The job runs as this identity (must be allowed to read the landing
-      # volume and write the bronze tables). In dev mode this must be the
-      # deploying user; in prod point it at a service principal.
+      # volume and write the bronze tables). This is the CI service principal
+      # claims-etl-deployer, which holds exactly those UC grants (see
+      # sql/setup_prod.sql and sql/setup_dev.sql). Note: in development mode
+      # DAB always overrides run_as to the deploying identity, so this
+      # setting effectively applies to the prod target.
       run_as:
-        user_name: ${var.job_owner}
+        service_principal_name: fef0a0bb-6045-4166-b608-15864536e98f
 
       # ---- Access control ----------------------------------------------------
       # Optional: share a read-only view of the job with a workspace group.

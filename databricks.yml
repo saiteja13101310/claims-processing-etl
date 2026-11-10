@@ -53,9 +53,6 @@ variables:
   alert_email:
     description: Email address that receives job failure notifications
     default: vsteja.de@gmail.com
-  job_owner:
-    description: Identity that runs the job (use a service principal in real prod)
-    default: vsteja.de@gmail.com
 
 targets:
   # ------------------------------ DEV ---------------------------------------
@@ -83,10 +80,9 @@ targets:
       landing_path: /Volumes/claims_prod/bronze/landing/*.csv
       job_pause_status: UNPAUSED
 
-    # In a real production workspace, run the job as a dedicated service
-    # principal instead of a personal account - see README, section
-    # "Service principal ownership". job_owner points at your user for now so
-    # the single-workspace fallback deploys cleanly.
+    # The job runs as the CI service principal claims-etl-deployer
+    # (set in resources/claims_job.yml); its UC grants live in
+    # sql/setup_prod.sql (prod) and sql/setup_dev.sql (dev, for CI smoke runs).
     #
     # TWO-WORKSPACE SETUP: uncomment and point at your Prod workspace URL.
     # workspace:
