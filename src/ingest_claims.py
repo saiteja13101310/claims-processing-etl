@@ -24,6 +24,8 @@ without touching Unity Catalog.
 import argparse
 import logging
 import sys
+import uuid
+from datetime import datetime, timezone
 
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
@@ -194,6 +196,64 @@ def _to_quarantine_schema(df: DataFrame) -> DataFrame:
     )
 
 
+def _utc_now():
+    """Timezone-aware UTC now (used in the per-run audit trail)."""
+    return datetime.now(timezone.utc)
+
+
+def write_audit_row(spark: SparkSession, audit_table: str, **values) -> None:
+    """Append one per-run summary row to the claims_run_audit table.
+
+    Best-effort by design: when this runs the data MERGEs have already
+    committed, so a problem writing the audit row is logged but never
+    fails the pipeline.
+    """
+    from pyspark.sql.types import (
+        LongType,
+        StringType,
+        StructField,
+        StructType,
+        TimestampType,
+    )
+
+    audit_spec = [
+        ("run_id", StringType()),
+        ("started_at", TimestampType()),
+        ("finished_at", TimestampType()),
+        ("landing_path", StringType()),
+        ("rows_read", LongType()),
+        ("valid_rows", LongType()),
+        ("duplicates_dropped", LongType()),
+        ("invalid_rows", LongType()),
+        ("raw_rows_inserted", LongType()),
+        ("raw_rows_updated", LongType()),
+        ("quarantine_rows_inserted", LongType()),
+        ("status", StringType()),
+        ("error_message", StringType()),
+    ]
+    try:
+        # NOTE: audit_spec holds type INSTANCES - pass them to StructField
+        # directly, do not call them.
+        schema = StructType(
+            [StructField(name, dtype, nullable=True) for name, dtype in audit_spec]
+        )
+        row = tuple(values.get(name) for name, _ in audit_spec)
+        spark.createDataFrame([row], schema).write.mode("append").saveAsTable(
+            audit_table
+        )
+        LOG.info(
+            "Run audit row written to %s (status=%s)",
+            audit_table,
+            values.get("status"),
+        )
+    except Exception:
+        LOG.warning(
+            "Could not write run audit row to %s - continuing.",
+            audit_table,
+            exc_info=True,
+        )
+
+
 def merge_upsert(spark: SparkSession, df: DataFrame, full_table: str, key: str) -> dict:
     """Idempotent Delta MERGE into a Unity Catalog table.
 
@@ -215,15 +275,36 @@ def merge_upsert(spark: SparkSession, df: DataFrame, full_table: str, key: str) 
     return dict(history) if history else {}
 
 
-def run(args: argparse.Namespace, spark: SparkSession = None) -> int:
+def run(args: argparse.Namespace, spark: SparkSession = None, started_at=None) -> int:
     spark = spark or get_spark()
     target_table = f"{args.catalog}.{args.schema}.{args.table}"
     quarantine_table = f"{args.catalog}.{args.schema}.{args.quarantine_table}"
+    # Derived from catalog/schema so no extra job parameter is needed.
+    audit_table = f"{args.catalog}.{args.schema}.claims_run_audit"
+    started_at = started_at or _utc_now()
+    run_id = uuid.uuid4().hex
 
     try:
         raw = read_landing(spark, args.landing_path)
     except NoFilesLanded:
         LOG.warning("No CSV files found at %s - nothing to ingest.", args.landing_path)
+        write_audit_row(
+            spark,
+            audit_table,
+            run_id=run_id,
+            started_at=started_at,
+            finished_at=_utc_now(),
+            landing_path=args.landing_path,
+            rows_read=0,
+            valid_rows=0,
+            duplicates_dropped=0,
+            invalid_rows=0,
+            raw_rows_inserted=0,
+            raw_rows_updated=0,
+            quarantine_rows_inserted=0,
+            status="SUCCESS",
+            error_message="no files found at landing path",
+        )
         return 0
 
     validate_schema(raw)
@@ -254,6 +335,7 @@ def run(args: argparse.Namespace, spark: SparkSession = None) -> int:
         metrics.get("numTargetRowsUpdated", "?"),
     )
 
+    q_metrics = {}
     if invalid_n > 0:
         q_metrics = merge_upsert(spark, quarantine_df, quarantine_table, "quarantine_key")
         LOG.info(
@@ -264,6 +346,24 @@ def run(args: argparse.Namespace, spark: SparkSession = None) -> int:
         )
     else:
         LOG.info("No invalid records - quarantine table untouched.")
+
+    write_audit_row(
+        spark,
+        audit_table,
+        run_id=run_id,
+        started_at=started_at,
+        finished_at=_utc_now(),
+        landing_path=args.landing_path,
+        rows_read=total_n,
+        valid_rows=deduped_n,
+        duplicates_dropped=valid_n - deduped_n,
+        invalid_rows=invalid_n,
+        raw_rows_inserted=int(metrics.get("numTargetRowsInserted") or 0),
+        raw_rows_updated=int(metrics.get("numTargetRowsUpdated") or 0),
+        quarantine_rows_inserted=int(q_metrics.get("numTargetRowsInserted") or 0),
+        status="SUCCESS",
+        error_message=None,
+    )
 
     LOG.info("Claims ingestion completed successfully.")
     return 0
@@ -286,10 +386,33 @@ def main(argv=None) -> int:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
+    args = None
+    started_at = _utc_now()
     try:
-        return run(parse_args(argv))
-    except Exception:
+        args = parse_args(argv)
+        return run(args, started_at=started_at)
+    except Exception as exc:
         LOG.exception("Claims ingestion FAILED")
+        # Best-effort failure audit so the run history shows WHY it failed;
+        # guarded so it can never mask the original error.
+        if args is not None:
+            write_audit_row(
+                get_spark(),
+                f"{args.catalog}.{args.schema}.claims_run_audit",
+                run_id=uuid.uuid4().hex,
+                started_at=started_at,
+                finished_at=_utc_now(),
+                landing_path=args.landing_path,
+                rows_read=None,
+                valid_rows=None,
+                duplicates_dropped=None,
+                invalid_rows=None,
+                raw_rows_inserted=None,
+                raw_rows_updated=None,
+                quarantine_rows_inserted=None,
+                status="FAILED",
+                error_message=f"{type(exc).__name__}: {exc}"[:2000],
+            )
         return 1
 
 

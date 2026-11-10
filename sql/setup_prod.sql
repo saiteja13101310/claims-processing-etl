@@ -59,6 +59,28 @@ CREATE TABLE IF NOT EXISTS claims_prod.bronze.claims_quarantine (
 USING DELTA
 COMMENT 'Records rejected by claims ingestion validation (idempotent MERGE target)';
 
+-- ------------------------------------------------------------- Run audit --
+-- One row per pipeline run: what was read, where it landed, why it failed.
+-- The ingestion job appends here at the end of every run (SUCCESS or
+-- FAILED), giving a queryable run history without digging through job logs.
+CREATE TABLE IF NOT EXISTS claims_prod.bronze.claims_run_audit (
+  run_id                    STRING     COMMENT 'Unique id for this pipeline execution',
+  started_at                TIMESTAMP  COMMENT 'When the run started',
+  finished_at               TIMESTAMP  COMMENT 'When the run finished',
+  landing_path              STRING     COMMENT 'Landing glob processed',
+  rows_read                 BIGINT     COMMENT 'Rows found in the landing files',
+  valid_rows                BIGINT     COMMENT 'Rows passing validation (post-dedup)',
+  duplicates_dropped        BIGINT     COMMENT 'Rows dropped as duplicates (latest kept)',
+  invalid_rows              BIGINT     COMMENT 'Rows quarantined by validation',
+  raw_rows_inserted         BIGINT     COMMENT 'MERGE: new claims added to claims_raw',
+  raw_rows_updated          BIGINT     COMMENT 'MERGE: existing claims refreshed',
+  quarantine_rows_inserted  BIGINT     COMMENT 'MERGE: new quarantine records',
+  status                    STRING     COMMENT 'SUCCESS or FAILED',
+  error_message             STRING     COMMENT 'Exception text when status = FAILED'
+)
+USING DELTA
+COMMENT 'Per-run audit trail for the claims ingestion pipeline (append-only)';
+
 -- ----------------------------------------------------------------- Grants --
 -- PRODUCTION PERMISSIONS - deliberately locked down.
 --
@@ -81,6 +103,7 @@ COMMENT 'Records rejected by claims ingestion validation (idempotent MERGE targe
 -- GRANT USE SCHEMA ON SCHEMA claims_prod.bronze TO `<run_as_sp_application_id>`;
 -- GRANT MODIFY, SELECT ON TABLE claims_prod.bronze.claims_raw TO `<run_as_sp_application_id>`;
 -- GRANT MODIFY, SELECT ON TABLE claims_prod.bronze.claims_quarantine TO `<run_as_sp_application_id>`;
+-- GRANT MODIFY, SELECT ON TABLE claims_prod.bronze.claims_run_audit TO `<run_as_sp_application_id>`;
 
 -- 3) Humans: read-only
 -- GRANT USE CATALOG ON CATALOG claims_prod TO `data_platform_team`;
