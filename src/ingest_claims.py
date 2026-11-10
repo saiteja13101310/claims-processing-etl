@@ -67,7 +67,9 @@ def read_landing(spark: SparkSession, landing_path: str) -> DataFrame:
     )
     if df.isEmpty():
         raise NoFilesLanded(landing_path)
-    return df.withColumn("_source_file", F.input_file_name())
+    # input_file_name() is not supported on Unity Catalog / serverless
+    # (Spark Connect) - the supported replacement is the _metadata column.
+    return df.withColumn("_source_file", F.col("_metadata.file_path"))
 
 
 def validate_schema(df: DataFrame) -> None:
@@ -83,7 +85,10 @@ def validate_schema(df: DataFrame) -> None:
 def _valid_flags(df: DataFrame):
     """Per-row boolean flags for each validation rule (native expressions)."""
     claim_id_ok = F.col("claim_id").isNotNull() & (F.trim(F.col("claim_id")) != "")
-    date_ok = F.to_date(F.col("claim_date"), DATE_FORMAT).isNotNull()
+    # try_to_date (not to_date): on serverless ANSI mode, to_date RAISES on
+    # unparseable input instead of returning NULL - and these rows are meant
+    # to be quarantined, not crash the job.
+    date_ok = F.expr(f"try_to_date(claim_date, '{DATE_FORMAT}')").isNotNull()
     amount_ok = (
         F.col("claim_amount").isNotNull()
         & (F.col("claim_amount").cast("DECIMAL(12,2)").isNotNull())
@@ -147,7 +152,7 @@ def deduplicate(df: DataFrame) -> DataFrame:
             "_rank",
             F.row_number().over(
                 Window.partitionBy("claim_id").orderBy(
-                    F.to_date(F.col("claim_date"), DATE_FORMAT).desc(),
+                    F.expr(f"try_to_date(claim_date, '{DATE_FORMAT}')").desc(),
                     F.col("_order").desc(),
                 )
             ),
@@ -158,7 +163,7 @@ def deduplicate(df: DataFrame) -> DataFrame:
 
 def transform(df: DataFrame) -> DataFrame:
     """Map validated raw rows to the bronze claims_raw schema."""
-    claim_date = F.to_date(F.col("claim_date"), DATE_FORMAT)
+    claim_date = F.expr(f"try_to_date(claim_date, '{DATE_FORMAT}')")
     return df.select(
         F.trim(F.col("claim_id")).alias("claim_id"),
         F.trim(F.col("policy_number")).alias("policy_number"),
@@ -289,4 +294,9 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # NOTE: never call sys.exit(0) on the success path. The serverless
+    # (Spark Connect) python-file runner executes scripts under IPython,
+    # where ANY SystemExit - even exit 0 - marks the workload FAILED.
+    # A clean end-of-script is the success signal; exit nonzero on failure.
+    if main() != 0:
+        sys.exit(1)
