@@ -61,18 +61,12 @@ targets:
     mode: development
     # Development mode: deployed job names are prefixed with your user name,
     # files are deployed with `--force` allowed, and redeploys are cheap.
-    variables:
-      catalog: claims_dev
-      landing_path: /Volumes/claims_dev/bronze/landing/*.csv
-      job_pause_status: PAUSED
-    workspace:
-      # CI deploys the dev target as the claims-etl-deployer service
-      # principal, which has no personal /Users/<sp-id> home folder (what
-      # dev mode uses by default), so a dev deploy would fail immediately.
-      # Pin bundle state and synced files to the pipeline owner's home
-      # folder; the SP is a workspace admin and can write there. The prod
-      # target keeps its production default (/Shared/.bundle/...).
-      root_path: /Users/vsteja.de@gmail.com/.bundle/dev
+    # NOTE: no workspace.root_path override - development mode requires each
+    # deployer (the CI service principal in CI, you locally) to deploy into
+    # its OWN home folder, which is also the default. Proven working by the
+    # CI deploy at 2026-11-11 20:06 UTC.
+    # (Dev uses the top-level variable defaults: claims_dev catalog,
+    # dev landing volume, PAUSED schedule.)
 
     # TWO-WORKSPACE SETUP: uncomment and point at your Dev workspace URL.
     # workspace:
