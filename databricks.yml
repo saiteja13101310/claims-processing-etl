@@ -83,6 +83,14 @@ targets:
     mode: production
     # Production mode: stable resource names, deploy requires confirmation
     # (CI uses --auto-approve AFTER the GitHub environment approval gate).
+    # Explicit root_path: without it, production mode resolves the default
+    # to the DEPLOYER's personal home folder, which differs per deployer
+    # (the CLI warns that multiple deployers would each create their own
+    # copy). Pin it to the CI service principal's workspace home - the only
+    # prod deployer - for one deterministic, restricted location. (The SP
+    # home folder is auto-created on first deploy; proven working.)
+    workspace:
+      root_path: /Users/fef0a0bb-6045-4166-b608-15864536e98f/.bundle/claims_processing_etl/prod
     variables:
       catalog: claims_prod
       landing_path: /Volumes/claims_prod/bronze/landing/*.csv
