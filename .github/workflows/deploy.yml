@@ -106,7 +106,6 @@ jobs:
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
         run: |
           databricks bundle run --target dev claims_ingestion \
-            --wait \
             || (echo "Dev smoke run failed - check job logs" && exit 1)
 
   # ------------------------------------------- Deploy PROD (approval gated)
