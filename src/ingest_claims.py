@@ -23,6 +23,7 @@ without touching Unity Catalog.
 
 import argparse
 import logging
+import os
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -44,6 +45,23 @@ REQUIRED_COLUMNS = [
     "region",
 ]
 DATE_FORMAT = "yyyy-MM-dd"
+
+# try_to_date is a Databricks SQL extension: on Databricks (ANSI mode on)
+# plain to_date RAISES on unparseable input, and bad rows must be
+# quarantined, not crash the job. OSS Spark 3.5 (local unit tests) has no
+# try_to_date, but runs with ANSI off, where to_date already returns NULL
+# for unparseable input - the same effective semantics. Detect the engine
+# once and parse dates accordingly.
+_ON_DATABRICKS = bool(
+    os.environ.get("DATABRICKS_RUNTIME_VERSION") or os.environ.get("SPARK_REMOTE")
+)
+
+
+def _parse_date(date_col: str):
+    """Parse DATE_FORMAT to a date: NULL - never an error - on bad input."""
+    if _ON_DATABRICKS:
+        return F.expr(f"try_to_date({date_col}, '{DATE_FORMAT}')")
+    return F.to_date(date_col, DATE_FORMAT)
 
 
 class NoFilesLanded(Exception):
@@ -90,7 +108,7 @@ def _valid_flags(df: DataFrame):
     # try_to_date (not to_date): on serverless ANSI mode, to_date RAISES on
     # unparseable input instead of returning NULL - and these rows are meant
     # to be quarantined, not crash the job.
-    date_ok = F.expr(f"try_to_date(claim_date, '{DATE_FORMAT}')").isNotNull()
+    date_ok = _parse_date("claim_date").isNotNull()
     amount_ok = (
         F.col("claim_amount").isNotNull()
         & (F.col("claim_amount").cast("DECIMAL(12,2)").isNotNull())
@@ -154,7 +172,7 @@ def deduplicate(df: DataFrame) -> DataFrame:
             "_rank",
             F.row_number().over(
                 Window.partitionBy("claim_id").orderBy(
-                    F.expr(f"try_to_date(claim_date, '{DATE_FORMAT}')").desc(),
+                    _parse_date("claim_date").desc(),
                     F.col("_order").desc(),
                 )
             ),
@@ -165,7 +183,7 @@ def deduplicate(df: DataFrame) -> DataFrame:
 
 def transform(df: DataFrame) -> DataFrame:
     """Map validated raw rows to the bronze claims_raw schema."""
-    claim_date = F.expr(f"try_to_date(claim_date, '{DATE_FORMAT}')")
+    claim_date = _parse_date("claim_date")
     return df.select(
         F.trim(F.col("claim_id")).alias("claim_id"),
         F.trim(F.col("policy_number")).alias("policy_number"),
