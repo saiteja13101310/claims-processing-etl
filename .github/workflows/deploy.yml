@@ -39,12 +39,11 @@ permissions:
   contents: read
   id-token: write   # needed only for OIDC federation (Azure)
 
-concurrency:
-  group: claims-etl-${{ github.ref }}
-  # A new push cancels any stuck/queued run for the same branch instead of
-  # queueing behind it. Deploys are idempotent, so re-running the latest
-  # commit is always the correct state.
-  cancel-in-progress: true
+# NOTE: concurrency block temporarily removed to unstick a jammed queue
+# (runs #14/#15 stuck in Queued). Re-add after confirming runs start:
+# concurrency:
+#   group: claims-etl-${{ github.ref }}
+#   cancel-in-progress: true
 
 jobs:
   # ---------------------------------------------------------------- CI on PRs
