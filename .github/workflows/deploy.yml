@@ -41,7 +41,10 @@ permissions:
 
 concurrency:
   group: claims-etl-${{ github.ref }}
-  cancel-in-progress: false
+  # A new push cancels any stuck/queued run for the same branch instead of
+  # queueing behind it. Deploys are idempotent, so re-running the latest
+  # commit is always the correct state.
+  cancel-in-progress: true
 
 jobs:
   # ---------------------------------------------------------------- CI on PRs
