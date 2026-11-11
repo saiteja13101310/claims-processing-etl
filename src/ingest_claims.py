@@ -86,16 +86,20 @@ def read_landing(spark: SparkSession, landing_path: str) -> DataFrame:
             .option("mode", "PERMISSIVE")
             .csv(landing_path)
         )
+        # Spark Connect (serverless) resolves paths LAZILY: the glob error
+        # surfaces at the first action (isEmpty), not at read() - so the
+        # emptiness check must live INSIDE the try block.
+        empty = df.isEmpty()
     except Exception as exc:
         # A glob that matches nothing (empty landing volume - the normal
-        # state of a fresh prod environment) raises PATH_NOT_FOUND before
-        # any DataFrame exists. That is the same "no files landed yet"
-        # condition, not a failure. Match both the Databricks error class
-        # name and the OSS Spark message for engine portability.
+        # state of a fresh prod environment) raises PATH_NOT_FOUND. That is
+        # the same "no files landed yet" condition, not a failure. Match
+        # both the Databricks error class name and the OSS Spark message
+        # for engine portability.
         if "PATH_NOT_FOUND" in str(exc) or "Path does not exist" in str(exc):
             raise NoFilesLanded(landing_path) from exc
         raise
-    if df.isEmpty():
+    if empty:
         raise NoFilesLanded(landing_path)
     # input_file_name() is not supported on Unity Catalog / serverless
     # (Spark Connect) - the supported replacement is the _metadata column.
