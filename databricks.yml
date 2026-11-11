@@ -20,6 +20,14 @@ bundle:
   # deploys print the full change plan and run only after the GitHub
   # `production` environment approval gate.
 
+workspace:
+  # CI deploys as the claims-etl-deployer service principal, which has no
+  # personal /Users/<sp-id> home folder (what dev mode uses by default), so
+  # a dev deploy would fail immediately. Pin bundle state and synced files
+  # to the pipeline owner's home folder for both targets; the SP is a
+  # workspace admin and can write there.
+  root_path: /Users/vsteja.de@gmail.com/.bundle/${bundle.target}
+
 include:
   - resources/*.yml
 
