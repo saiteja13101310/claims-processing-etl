@@ -80,11 +80,21 @@ def read_landing(spark: SparkSession, landing_path: str) -> DataFrame:
     data, and casting happens in validate/transform where we can tell
     a *bad value* from a *missing column*.
     """
-    df = (
-        spark.read.option("header", True)
-        .option("mode", "PERMISSIVE")
-        .csv(landing_path)
-    )
+    try:
+        df = (
+            spark.read.option("header", True)
+            .option("mode", "PERMISSIVE")
+            .csv(landing_path)
+        )
+    except Exception as exc:
+        # A glob that matches nothing (empty landing volume - the normal
+        # state of a fresh prod environment) raises PATH_NOT_FOUND before
+        # any DataFrame exists. That is the same "no files landed yet"
+        # condition, not a failure. Match both the Databricks error class
+        # name and the OSS Spark message for engine portability.
+        if "PATH_NOT_FOUND" in str(exc) or "Path does not exist" in str(exc):
+            raise NoFilesLanded(landing_path) from exc
+        raise
     if df.isEmpty():
         raise NoFilesLanded(landing_path)
     # input_file_name() is not supported on Unity Catalog / serverless
